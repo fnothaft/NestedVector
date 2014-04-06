@@ -1,7 +1,7 @@
-NestedVector
+snark: Scalable Nested ARray toolKit
 =====
 
-A nested vector library for Scala.
+A distributed nested vector library for Scala.
 
 What is a nested vector?
 =====
