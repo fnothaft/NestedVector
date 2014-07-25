@@ -1,6 +1,8 @@
 snark: Scalable Nested ARray toolKit
 =====
 
+[![Build Status](https://travis-ci.org/fnothaft/snark.svg?branch=master)](https://travis-ci.org/fnothaft/snark)
+
 A distributed nested vector library for Scala.
 
 What is a nested vector?
@@ -15,4 +17,4 @@ The short answer however, is that nested vectors are a data structure meant for 
 Why should we use them?
 =====
 
-For now, you'll have to be content with the link above. As time allows(and as I build functionality), more will appear here.
+For now, you'll have to be content with the link above. As time allows (and as I build functionality), more will appear here.
