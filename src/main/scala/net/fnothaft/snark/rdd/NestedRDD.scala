@@ -20,6 +20,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import net.fnothaft.snark.SnarkContext._
 import net.fnothaft.snark.{ ArrayStructure, NestedIndex }
+import scala.annotation.tailrec
 import scala.math.{ log, pow }
 import scala.reflect.ClassTag
 
@@ -35,16 +36,19 @@ object NestedRDD {
    * @return Returns an RDD containing indices from 0 to n.
    */
   private[rdd] def index(sc: SparkContext, n: Int): RDD[NestedIndex] = {
-    var step = pow(2.0, (log(n.toDouble) / log(2.0))).toInt
-    var rdd: RDD[NestedIndex] = sc.parallelize(Seq(NestedIndex(0, 0))).cache
+    var step = pow(2, (log(n.toDouble) / log(2.0)).toInt).toInt
+    var rdd: RDD[NestedIndex] = sc.parallelize(Seq(NestedIndex(0, 0)))
 
-    // loop and fill in points
-    while (step >= 1) {
-      rdd = rdd.flatMap(i => Seq(i, NestedIndex(0, i.idx + step)).filter(_.idx < n))
-      step /= 2
+    @tailrec def fillIn(step: Int, rdd: RDD[NestedIndex]): RDD[NestedIndex] = {
+      if (step < 1) {
+        rdd
+      }
+      else {
+        fillIn(step / 2, rdd.flatMap(i => Seq(i, NestedIndex(0, i.idx + step))))
+      }
     }
 
-    rdd
+    fillIn(step, rdd).filter(_.idx < n)
   }
 
   /**
@@ -55,10 +59,11 @@ object NestedRDD {
    * @return Returns a nested RDD.
    */
   private[rdd] def apply[T](rdd: RDD[(NestedIndex, T)],
-    structure: ArrayStructure): NestedRDD[T] = {
+                            structure: ArrayStructure): NestedRDD[T] = {
     if (enableOptimization) {
       throw new IllegalArgumentException("Optimization not yet implemented.")
-    } else {
+    }
+    else {
       new NestedRDD[T](rdd, structure)
     }
   }
@@ -90,7 +95,7 @@ private[rdd] case class ScanHelper[T, U](originalValue: T) {
 }
 
 class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
-    protected val structure: ArrayStructure) extends Serializable {
+                   protected val structure: ArrayStructure) extends Serializable {
 
   /**
    * Maps a function to every element of this RDD.
@@ -281,7 +286,7 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
    * @param zero Zero value to use for the scan.
    * @return New RDD where each segment has been operated on by a scan.
    */
-  def segmentedScan[U](zero: U)(op: (T, U) => U): NestedRDD[U] = {
+  def segmentedScan[U](zero: U)(op: (U, T) => U): NestedRDD[U] = {
     segmentedScan((0 until structure.nests).map(i => zero))(op)
   }
 
@@ -293,7 +298,7 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
    * @param zero Sequence of zero values to use for the scan.
    * @return New RDD where each segment has been operated on by a scan.
    */
-  def segmentedScan[U](zeros: Seq[U])(op: (T, U) => U): NestedRDD[U] = {
+  def segmentedScan[U](zeros: Seq[U])(op: (U, T) => U): NestedRDD[U] = {
     assert(zeros.length == structure.nests,
       "Zeros must match to structure of RDD.")
 
@@ -308,7 +313,7 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
 
         val idx = sorted.map(kv => kv._1)
         val vals = sorted.map(kv => kv._2)
-          .scanRight(zero)(op)
+          .scanLeft(zero)(op)
           .dropRight(1)
 
         idx.zip(vals)
@@ -333,4 +338,13 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
    * the RDD.
    */
   protected def repartition() = {}
+
+  /**
+   * Collects the nested RDD on the master.
+   *
+   * @return The RDD in an array.
+   */
+  def collect(): Array[(NestedIndex, T)] = {
+    rdd.collect()
+  }
 }

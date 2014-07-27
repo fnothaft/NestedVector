@@ -54,7 +54,8 @@ trait SparkFunSuite extends FunSuite with BeforeAndAfter {
       try {
         // Run the before block
         body
-      } finally {
+      }
+      finally {
         teardownSparkContext()
       }
     }
@@ -66,7 +67,8 @@ trait SparkFunSuite extends FunSuite with BeforeAndAfter {
       try {
         // Run the after block
         body
-      } finally {
+      }
+      finally {
         teardownSparkContext()
       }
     }
@@ -78,7 +80,8 @@ trait SparkFunSuite extends FunSuite with BeforeAndAfter {
       try {
         // Run the test
         body
-      } finally {
+      }
+      finally {
         teardownSparkContext()
       }
     }

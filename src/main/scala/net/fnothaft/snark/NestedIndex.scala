@@ -21,7 +21,8 @@ case class NestedIndex(nest: Int, idx: Int) extends Ordered[NestedIndex] {
 
     if (nestCompare != 0) {
       nestCompare
-    } else {
+    }
+    else {
       idx.compare(that.idx)
     }
   }

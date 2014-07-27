@@ -21,4 +21,106 @@ import net.fnothaft.snark.util.SparkFunSuite
 
 class NestedRDDSuite extends SparkFunSuite {
 
+  sparkTest("build a simple index") {
+    val index = NestedRDD.index(sc, 10)
+
+    assert(index.count === 10)
+    assert(index.filter(_.nest == 0).count === 10)
+    (0 until 10).foreach(i => {
+      assert(index.filter(_.idx == i).count === 1)
+    })
+  }
+
+  sparkTest("can build a simple nested array") {
+    val index = NestedRDD.index(sc, 10).coalesce(1)
+    val rdd = sc.parallelize(Seq(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), 1)
+    val structure = ArrayStructure(Seq(10L))
+    val zipRdd = index.zip(rdd)
+
+    val nRdd = NestedRDD(zipRdd, structure)
+
+    assert(nRdd.countWithSideEffects === 10)
+    nRdd.collect.foreach(kv => assert(kv._1.idx === kv._2))
+  }
+
+  sparkTest("perform simple scan: factorial") {
+    val index = NestedRDD.index(sc, 5).coalesce(1)
+    val rdd = sc.parallelize(Seq(1, 2, 3, 4, 5), 1)
+    val structure = ArrayStructure(Seq(5L))
+    val zipRdd = index.zip(rdd)
+
+    val nRdd = NestedRDD(zipRdd, structure)
+
+    assert(nRdd.countWithSideEffects === 5)
+
+    val sRdd = nRdd.segmentedScan(Seq(1))(_ * _)
+    assert(sRdd.countWithSideEffects === 5)
+
+    def factorial(n: Int): Int = if (n > 1) {
+      (1 to n).reduce(_ * _)
+    }
+    else {
+      1
+    }
+
+    sRdd.collect.foreach(kv => {
+      assert(factorial(kv._1.idx) === kv._2)
+    })
+  }
+
+  sparkTest("perform simple scan: sum") {
+    val index = NestedRDD.index(sc, 5).coalesce(1)
+    val rdd = sc.parallelize(Seq(1, 1, 1, 1, 1), 1)
+    val structure = ArrayStructure(Seq(5L))
+    val zipRdd = index.zip(rdd)
+
+    val nRdd = NestedRDD(zipRdd, structure)
+
+    assert(nRdd.countWithSideEffects === 5)
+
+    val sRdd = nRdd.segmentedScan(Seq(1))(_ + _)
+    assert(sRdd.countWithSideEffects === 5)
+
+    sRdd.collect.foreach(kv => {
+      assert((kv._1.idx + 1) === kv._2)
+    })
+  }
+
+  sparkTest("perform simple reduce") {
+    val index = NestedRDD.index(sc, 5).coalesce(1)
+    val rdd = sc.parallelize(Seq(1, 1, 1, 1, 1), 1)
+    val structure = ArrayStructure(Seq(5L))
+    val zipRdd = index.zip(rdd)
+
+    val nRdd = NestedRDD(zipRdd, structure)
+
+    assert(nRdd.countWithSideEffects === 5)
+
+    val r = nRdd.reduce(_ + _)
+    val sr = nRdd.segmentedReduce(_ + _)
+
+    assert(sr.size === 1)
+    assert(r === 5)
+    assert(sr(0) === r)
+  }
+
+  sparkTest("perform simple p operand operation") {
+    val index = NestedRDD.index(sc, 5).coalesce(1)
+    val rdd1 = sc.parallelize(Seq(1, 1, 1, 1, 1), 1)
+    val rdd2 = sc.parallelize(Seq(-1, 0, 1, 2, 3), 1)
+    val structure = ArrayStructure(Seq(5L))
+    val zipRdd1 = index.zip(rdd1)
+    val zipRdd2 = index.zip(rdd2)
+
+    val nRdd1 = NestedRDD(zipRdd1, structure)
+    val nRdd2 = NestedRDD(zipRdd2, structure)
+
+    assert(nRdd1.countWithSideEffects === 5)
+    assert(nRdd2.countWithSideEffects === 5)
+
+    val pRdd = nRdd1.p[Int, Int](_ + _)(nRdd2)
+
+    assert(pRdd.countWithSideEffects === 5)
+    pRdd.collect.foreach(kv => assert(kv._1.idx === kv._2))
+  }
 }
