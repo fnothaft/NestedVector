@@ -78,22 +78,6 @@ object NestedRDD {
   }
 }
 
-private[rdd] case class ScanHelper[T, U](originalValue: T) {
-  var scanValue: Option[U] = None
-
-  def scan(lvalue: U, op: (U, T) => U): U = {
-    assert(!hasBeenProcessed, "Cannot scan value twice.")
-
-    val afterScan = op(lvalue, originalValue)
-
-    scanValue = Some(afterScan)
-
-    afterScan
-  }
-
-  def hasBeenProcessed: Boolean = scanValue.isDefined
-}
-
 class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
                    protected val structure: ArrayStructure) extends Serializable {
 
@@ -235,11 +219,80 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
   /**
    *
    */
-  def scan[U](zero: U)(op: (T, U) => U)(implicit tTag: ClassTag[T]): NestedRDD[U] = {
-    val r = rdd.sortByKey()
-      .cache
+  def scan[U](scanZero: U,
+              updateZero: U)(scanOp: (T, U) => U,
+                             updateOp: (U, U) => U)(implicit tTag: ClassTag[T],
+                                                    uTag: ClassTag[U]): NestedRDD[U] = {
+    @tailrec def doScan(iter: Iterator[(NestedIndex, T)],
+                        runningValue: U,
+                        l: List[(NestedIndex, U)] = List()): (List[(NestedIndex, U)], U) = {
+      if (!iter.hasNext) {
+        (l, runningValue)
+      }
+      else {
+        val (currentIndex, value) = iter.next
+        val nextL = (currentIndex, runningValue) :: l
+        val nextVal = scanOp(value, runningValue)
 
-    ???
+        doScan(iter, nextVal, nextL)
+      }
+    }
+
+    // do the first scan pass
+    val firstPass = rdd.groupBy(kv => kv._1.nest)
+      .map(kv => {
+        val (nest, nestValues) = kv
+
+        // sort nest values
+        val sortedNest = nestValues.toSeq
+          .sortBy(p => p._1)
+          .toIterator
+
+        // scan
+        val (newValues, propegate) = doScan(sortedNest, scanZero)
+
+        (nest, newValues, propegate)
+      })
+
+    // cache the first pass
+    firstPass.cache()
+
+    // collect the propegated values
+    val collectedPropegates = firstPass.map(kv => (kv._1, kv._3))
+      .collect
+      .toSeq
+      .sortBy(kv => kv._1)
+      .map(kv => kv._2)
+      .toArray
+
+    // do scan update...
+    var runningValue = updateZero
+    (0 until collectedPropegates.length).foreach(i => {
+      val currentValue = collectedPropegates(i)
+
+      // update in place
+      collectedPropegates(i) = runningValue
+
+      // calculate new running value
+      runningValue = updateOp(runningValue, currentValue)
+    })
+
+    // map and do update
+    val finalScanRDD = firstPass.flatMap(kv => kv._2)
+      .map(kv => {
+        val (idx, value) = kv
+
+        // look up update
+        val update = collectedPropegates(idx.nest)
+
+        // update and return
+        (idx, updateOp(value, update))
+      })
+
+    // unpersist cached rdd
+    firstPass.unpersist()
+
+    NestedRDD[U](finalScanRDD, structure)
   }
 
   /**
@@ -331,6 +384,10 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
     assert(collected.length == 1, "Cannot have more than one value with index " + idx)
 
     collected.head._2
+  }
+
+  def toRDD()(implicit tTag: ClassTag[T]): RDD[T] = {
+    rdd.map(kv => kv._2)
   }
 
   /**
