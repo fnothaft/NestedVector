@@ -123,4 +123,34 @@ class NestedRDDSuite extends SparkFunSuite {
     assert(pRdd.countWithSideEffects === 5)
     pRdd.collect.foreach(kv => assert(kv._1.idx === kv._2))
   }
+
+  sparkTest("perform a simple scan") {
+    val index = NestedRDD.index(sc, 10).coalesce(1)
+    val rdd = sc.parallelize(Seq(1, 1, 1, 1, 1, 1, 1, 1, 1, 1), 1)
+    val structure = ArrayStructure(Seq(10L))
+
+    val nRdd = NestedRDD(index.zip(rdd), structure)
+
+    val scanRdd = nRdd.scan(0, 0)(_ + _, _ + _)
+
+    assert(scanRdd.countWithSideEffects === 10)
+    assert(scanRdd.toRDD.distinct.count === 10)
+    assert(scanRdd.toRDD.collect.toSeq.min === 0)
+    assert(scanRdd.toRDD.collect.toSeq.max === 9)
+  }
+
+  sparkTest("perform a more complex scan") {
+    val index = NestedRDD.index(sc, 1000).coalesce(5, true)
+    val rdd = sc.parallelize((0 until 1000).toList.map(i => 1)).coalesce(5, true)
+    val structure = ArrayStructure(Seq(1000L))
+
+    val nRdd = NestedRDD(index.zip(rdd), structure)
+
+    val scanRdd = nRdd.scan(0, 0)(_ + _, _ + _)
+
+    assert(scanRdd.countWithSideEffects === 1000)
+    assert(scanRdd.toRDD.distinct.count === 1000)
+    assert(scanRdd.toRDD.collect.toSeq.min === 0)
+    assert(scanRdd.toRDD.collect.toSeq.max === 999)
+  }
 }
