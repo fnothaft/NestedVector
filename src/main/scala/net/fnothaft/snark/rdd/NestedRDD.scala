@@ -26,8 +26,6 @@ import scala.reflect.ClassTag
 
 object NestedRDD {
 
-  private var enableOptimization = false
-
   /**
    * Creates a flat index RDD with n values. Package private.
    *
@@ -42,8 +40,7 @@ object NestedRDD {
     @tailrec def fillIn(step: Int, rdd: RDD[NestedIndex]): RDD[NestedIndex] = {
       if (step < 1) {
         rdd
-      }
-      else {
+      } else {
         fillIn(step / 2, rdd.flatMap(i => Seq(i, NestedIndex(0, i.idx + step))))
       }
     }
@@ -59,27 +56,21 @@ object NestedRDD {
    * @return Returns a nested RDD.
    */
   private[rdd] def apply[T](rdd: RDD[(NestedIndex, T)],
-                            structure: ArrayStructure): NestedRDD[T] = {
-    if (enableOptimization) {
-      throw new IllegalArgumentException("Optimization not yet implemented.")
+                            structure: ArrayStructure,
+                            strategy: PartitioningStrategy.Strategy = PartitioningStrategy.Auto)(implicit tTag: ClassTag[T]): NestedRDD[T] = strategy match {
+    case PartitioningStrategy.Auto => {
+      ???
     }
-    else {
-      new NestedRDD[T](rdd, structure)
+    case _ => {
+      new NestedRDD[T](rdd, structure, strategy).repartition()
     }
   }
 
-  /**
-   * Enables or disables optimizations.
-   *
-   * @param b Boolean value that denotes whether optimizations should be enabled or not.
-   */
-  def setOptimizations(b: Boolean) {
-    enableOptimization = b
-  }
 }
 
-class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
-                   protected val structure: ArrayStructure) extends Serializable {
+class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
+                                 protected val structure: ArrayStructure,
+                                 protected val strategy: PartitioningStrategy.Strategy = PartitioningStrategy.None) extends Serializable {
 
   /**
    * Maps a function to every element of this RDD.
@@ -90,12 +81,12 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
    *
    * @see mapWithIndex
    */
-  def map[U](op: T => U): NestedRDD[U] = {
+  def map[U](op: T => U)(implicit uTag: ClassTag[U]): NestedRDD[U] = {
     NestedRDD[U](rdd.map(kv => {
       val (idx, v) = kv
 
       (idx, op(v))
-    }), structure)
+    }), structure, strategy)
   }
 
   /**
@@ -107,12 +98,12 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
    *
    * @see map
    */
-  def mapWithIndex[U](op: (T, NestedIndex) => U): NestedRDD[U] = {
+  def mapWithIndex[U](op: (T, NestedIndex) => U)(implicit uTag: ClassTag[U]): NestedRDD[U] = {
     NestedRDD[U](rdd.map(kv => {
       val (idx, v) = kv
 
       (idx, op(v, idx))
-    }), structure)
+    }), structure, strategy)
   }
 
   /**
@@ -189,7 +180,7 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
   def flatten()(implicit tTag: ClassTag[T]): NestedRDD[T] = {
     val idxRdd = NestedRDD.index(rdd.context, count.toInt)
 
-    NestedRDD[T](idxRdd.zip(rdd.map(kv => kv._2)), structure)
+    NestedRDD[T](idxRdd.zip(rdd.map(kv => kv._2)), structure, strategy)
   }
 
   /**
@@ -213,30 +204,50 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
         val (k, s) = kv
 
         (k, s.reduce(op))
-      }), structure)
+      }), structure, strategy)
+  }
+
+  @tailrec protected final def doScan[U](scanOp: (U, T) => U,
+                                         iter: Iterator[(NestedIndex, T)],
+                                         runningValue: U,
+                                         l: List[(NestedIndex, U)] = List()): (List[(NestedIndex, U)], U) = {
+    if (!iter.hasNext) {
+      (l, runningValue)
+    } else {
+      val (currentIndex, value) = iter.next
+      val nextL = (currentIndex, runningValue) :: l
+      val nextVal = scanOp(runningValue, value)
+
+      doScan(scanOp, iter, nextVal, nextL)
+    }
   }
 
   /**
+   * Applies a prefix scan over the RDD. The scan proceeds in order given by the
+   * indices of all elements in the RDD.
    *
+   * @param zero The zero value for the scan.
+   * @param op The function to apply during the scan.
+   * @return Returns a scanned RDD.
+   */
+  def scan(zero: T)(op: (T, T) => T)(implicit tTag: ClassTag[T]): NestedRDD[T] = {
+    scan[T](zero, zero)(op, op)
+  }
+
+  /**
+   * Applies a prefix scan over the RDD. The scan proceeds in order given by the
+   * indices of all elements in the RDD.
+   *
+   * @param scanZero The zero value for the scan.
+   * @param updateZero The zero value for the update pass.
+   * @param scanOp The function to apply during the scan.
+   * @param updateOp The function to apply during the update pass.
+   * @return Returns a scanned RDD.
    */
   def scan[U](scanZero: U,
-              updateZero: U)(scanOp: (T, U) => U,
+              updateZero: U)(scanOp: (U, T) => U,
                              updateOp: (U, U) => U)(implicit tTag: ClassTag[T],
                                                     uTag: ClassTag[U]): NestedRDD[U] = {
-    @tailrec def doScan(iter: Iterator[(NestedIndex, T)],
-                        runningValue: U,
-                        l: List[(NestedIndex, U)] = List()): (List[(NestedIndex, U)], U) = {
-      if (!iter.hasNext) {
-        (l, runningValue)
-      }
-      else {
-        val (currentIndex, value) = iter.next
-        val nextL = (currentIndex, runningValue) :: l
-        val nextVal = scanOp(value, runningValue)
-
-        doScan(iter, nextVal, nextL)
-      }
-    }
 
     // do the first scan pass
     val firstPass = rdd.groupBy(kv => kv._1.nest)
@@ -249,7 +260,7 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
           .toIterator
 
         // scan
-        val (newValues, propegate) = doScan(sortedNest, scanZero)
+        val (newValues, propegate) = doScan(scanOp, sortedNest, scanZero)
 
         (nest, newValues, propegate)
       })
@@ -292,7 +303,7 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
     // unpersist cached rdd
     firstPass.unpersist()
 
-    NestedRDD[U](finalScanRDD, structure)
+    NestedRDD[U](finalScanRDD, structure, strategy)
   }
 
   /**
@@ -302,7 +313,7 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
    * @param op Function to apply.
    * @param r Other nested RDD to perform P operation on. Must have the same structure as this RDD.
    */
-  def p[U, V](op: (T, U) => V)(r: NestedRDD[U]): NestedRDD[V] = {
+  def p[U, V](op: (T, U) => V)(r: NestedRDD[U])(implicit vTag: ClassTag[V]): NestedRDD[V] = {
     assert(structure.equals(r.structure),
       "Cannot do a p-operation on two nested arrays with different sizes.")
 
@@ -312,7 +323,7 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
         assert(idx == idx2)
 
         (idx, op(t, u))
-      }), structure)
+      }), structure, strategy)
   }
 
   /**
@@ -339,7 +350,7 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
    * @param zero Zero value to use for the scan.
    * @return New RDD where each segment has been operated on by a scan.
    */
-  def segmentedScan[U](zero: U)(op: (U, T) => U): NestedRDD[U] = {
+  def segmentedScan[U](zero: U)(op: (U, T) => U)(implicit uTag: ClassTag[U]): NestedRDD[U] = {
     segmentedScan((0 until structure.nests).map(i => zero))(op)
   }
 
@@ -351,7 +362,7 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
    * @param zero Sequence of zero values to use for the scan.
    * @return New RDD where each segment has been operated on by a scan.
    */
-  def segmentedScan[U](zeros: Seq[U])(op: (U, T) => U): NestedRDD[U] = {
+  def segmentedScan[U](zeros: Seq[U])(op: (U, T) => U)(implicit uTag: ClassTag[U]): NestedRDD[U] = {
     assert(zeros.length == structure.nests,
       "Zeros must match to structure of RDD.")
 
@@ -370,13 +381,13 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
           .dropRight(1)
 
         idx.zip(vals)
-      }), structure)
+      }), structure, strategy)
   }
 
   /**
    * Returns the value at a certain nested index.
    */
-  def get(idx: NestedIndex): T = {
+  def get(idx: NestedIndex)(implicit tTag: ClassTag[T]): T = {
     val collected = rdd.filter(kv => kv._1.equals(idx))
       .collect
 
@@ -390,11 +401,19 @@ class NestedRDD[T](protected val rdd: RDD[(NestedIndex, T)],
     rdd.map(kv => kv._2)
   }
 
-  /**
-   * Forces a repartitioning. Must be called after any operation that changes the structure of
-   * the RDD.
-   */
-  protected def repartition() = {}
+  protected def repartition()(implicit tTag: ClassTag[T]): NestedRDD[T] = repartition(strategy)
+
+  protected def repartition(newStrategy: PartitioningStrategy.Strategy)(implicit tTag: ClassTag[T]): NestedRDD[T] = newStrategy match {
+    case PartitioningStrategy.Segmented => {
+      new SegmentedRDD[T](rdd.partitionBy(new SegmentPartitioner(structure)),
+        structure,
+        strategy)
+    }
+    case _ => {
+      // no-op
+      this
+    }
+  }
 
   /**
    * Collects the nested RDD on the master.

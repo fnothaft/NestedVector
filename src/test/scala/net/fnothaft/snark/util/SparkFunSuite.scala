@@ -18,7 +18,7 @@ package net.fnothaft.snark.util
 import org.scalatest.{ Tag, BeforeAndAfter, FunSuite }
 import org.apache.spark.{ SparkConf, SparkContext }
 import java.net.ServerSocket
-import org.apache.log4j.Level
+import org.apache.log4j.{ Level, Logger }
 
 object SparkTest extends Tag("net.fnothaft.snark.util.SparkFunSuite")
 
@@ -28,10 +28,13 @@ object SparkTest extends Tag("net.fnothaft.snark.util.SparkFunSuite")
 trait SparkFunSuite extends FunSuite with BeforeAndAfter {
 
   var sc: SparkContext = _
-  var maybeLevels: Option[Map[String, Level]] = None
 
   def setupSparkContext(sparkName: String, silenceSpark: Boolean = true) {
-    // Silence the Spark logs if requested
+    // Silence the Spark logs
+    Seq("spark", "org.eclipse.jetty", "akka").foreach(name => {
+      Logger.getLogger(name).setLevel(Level.WARN)
+    })
+
     synchronized {
       // Find an unused port
       val s = new ServerSocket(0)
@@ -54,8 +57,7 @@ trait SparkFunSuite extends FunSuite with BeforeAndAfter {
       try {
         // Run the before block
         body
-      }
-      finally {
+      } finally {
         teardownSparkContext()
       }
     }
@@ -67,8 +69,7 @@ trait SparkFunSuite extends FunSuite with BeforeAndAfter {
       try {
         // Run the after block
         body
-      }
-      finally {
+      } finally {
         teardownSparkContext()
       }
     }
@@ -80,8 +81,7 @@ trait SparkFunSuite extends FunSuite with BeforeAndAfter {
       try {
         // Run the test
         body
-      }
-      finally {
+      } finally {
         teardownSparkContext()
       }
     }
