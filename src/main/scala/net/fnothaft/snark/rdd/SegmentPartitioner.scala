@@ -13,18 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.fnothaft.snark
+package net.fnothaft.snark.rdd
 
-case class NestedIndex(nest: Int, idx: Int) extends Ordered[NestedIndex] {
-  def compare(that: NestedIndex): Int = {
-    val nestCompare = nest.compare(that.nest)
+import org.apache.spark.Partitioner
+import net.fnothaft.snark.{ ArrayStructure, NestedIndex }
 
-    if (nestCompare != 0) {
-      nestCompare
+private[rdd] class SegmentPartitioner(structure: ArrayStructure) extends Partitioner {
+
+  val nests = structure.nests
+
+  def getPartition(key: Any): Int = key match {
+    case ni: NestedIndex => if (ni.nest <= nests) {
+      ni.nest
     } else {
-      idx.compare(that.idx)
+      throw new IllegalArgumentException("Recieved out of range key: " + ni +
+        ". Only have " + nests + " nests.")
     }
+    case _ => throw new IllegalArgumentException("Received key with non nested-index type: " + key)
   }
 
-  override def toString(): String = "NestedIndex(" + nest + ", " + idx + ")"
+  def numPartitions: Int = nests
 }

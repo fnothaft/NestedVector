@@ -19,17 +19,7 @@ import org.apache.spark.rdd.RDD
 import net.fnothaft.snark.{ NestedIndex, ArrayStructure }
 import net.fnothaft.snark.util.SparkFunSuite
 
-class NestedRDDSuite extends SparkFunSuite {
-
-  sparkTest("build a simple index") {
-    val index = NestedRDD.index(sc, 10)
-
-    assert(index.count === 10)
-    assert(index.filter(_.nest == 0).count === 10)
-    (0 until 10).foreach(i => {
-      assert(index.filter(_.idx == i).count === 1)
-    })
-  }
+class SegmentedRDDSuite extends SparkFunSuite {
 
   sparkTest("can build a simple nested array") {
     val index = NestedRDD.index(sc, 10).coalesce(1)
@@ -37,7 +27,7 @@ class NestedRDDSuite extends SparkFunSuite {
     val structure = ArrayStructure(Seq(10L))
     val zipRdd = index.zip(rdd)
 
-    val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.None)
+    val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.Segmented)
 
     assert(nRdd.countWithSideEffects === 10)
     nRdd.collect.foreach(kv => assert(kv._1.idx === kv._2))
@@ -49,7 +39,7 @@ class NestedRDDSuite extends SparkFunSuite {
     val structure = ArrayStructure(Seq(5L))
     val zipRdd = index.zip(rdd)
 
-    val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.None)
+    val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.Segmented)
 
     assert(nRdd.countWithSideEffects === 5)
 
@@ -73,7 +63,7 @@ class NestedRDDSuite extends SparkFunSuite {
     val structure = ArrayStructure(Seq(5L))
     val zipRdd = index.zip(rdd)
 
-    val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.None)
+    val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.Segmented)
 
     assert(nRdd.countWithSideEffects === 5)
 
@@ -91,7 +81,7 @@ class NestedRDDSuite extends SparkFunSuite {
     val structure = ArrayStructure(Seq(5L))
     val zipRdd = index.zip(rdd)
 
-    val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.None)
+    val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.Segmented)
 
     assert(nRdd.countWithSideEffects === 5)
 
@@ -111,8 +101,8 @@ class NestedRDDSuite extends SparkFunSuite {
     val zipRdd1 = index.zip(rdd1)
     val zipRdd2 = index.zip(rdd2)
 
-    val nRdd1 = NestedRDD(zipRdd1, structure, PartitioningStrategy.None)
-    val nRdd2 = NestedRDD(zipRdd2, structure, PartitioningStrategy.None)
+    val nRdd1 = NestedRDD(zipRdd1, structure, PartitioningStrategy.Segmented)
+    val nRdd2 = NestedRDD(zipRdd2, structure, PartitioningStrategy.Segmented)
 
     assert(nRdd1.countWithSideEffects === 5)
     assert(nRdd2.countWithSideEffects === 5)
@@ -128,7 +118,7 @@ class NestedRDDSuite extends SparkFunSuite {
     val rdd = sc.parallelize(Seq(1, 1, 1, 1, 1, 1, 1, 1, 1, 1), 1)
     val structure = ArrayStructure(Seq(10L))
 
-    val nRdd = NestedRDD(index.zip(rdd), structure, PartitioningStrategy.None)
+    val nRdd = NestedRDD(index.zip(rdd), structure, PartitioningStrategy.Segmented)
 
     val scanRdd = nRdd.scan(0, 0)(_ + _, _ + _)
 
@@ -143,7 +133,7 @@ class NestedRDDSuite extends SparkFunSuite {
     val rdd = sc.parallelize((0 until 1000).toList.map(i => 1)).coalesce(5, true)
     val structure = ArrayStructure(Seq(1000L))
 
-    val nRdd = NestedRDD(index.zip(rdd), structure, PartitioningStrategy.None)
+    val nRdd = NestedRDD(index.zip(rdd), structure, PartitioningStrategy.Segmented)
 
     val scanRdd = nRdd.scan(0, 0)(_ + _, _ + _)
 

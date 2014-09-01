@@ -13,18 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.fnothaft.snark
+package net.fnothaft.snark.rdd
 
-case class NestedIndex(nest: Int, idx: Int) extends Ordered[NestedIndex] {
-  def compare(that: NestedIndex): Int = {
-    val nestCompare = nest.compare(that.nest)
-
-    if (nestCompare != 0) {
-      nestCompare
-    } else {
-      idx.compare(that.idx)
-    }
-  }
-
-  override def toString(): String = "NestedIndex(" + nest + ", " + idx + ")"
+object PartitioningStrategy extends Enumeration {
+  type Strategy = Value
+  val None, Auto, Segmented = Value
 }
