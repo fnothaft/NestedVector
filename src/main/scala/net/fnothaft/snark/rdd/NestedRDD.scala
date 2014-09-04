@@ -343,6 +343,14 @@ class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
       .toMap
   }
 
+  def segmentedScan(zero: T)(op: (T, T) => T)(implicit tTag: ClassTag[T]): NestedRDD[T] = {
+    segmentedScan[T](zero)(op, op)
+  }
+
+  def segmentedScan(zeros: Seq[T])(op: (T, T) => T)(implicit tTag: ClassTag[T]): NestedRDD[T] = {
+    segmentedScan[T](zeros)(op, op)
+  }
+
   /**
    * Performs a scan on all of the segments of this RDD.
    *
@@ -350,8 +358,9 @@ class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
    * @param zero Zero value to use for the scan.
    * @return New RDD where each segment has been operated on by a scan.
    */
-  def segmentedScan[U](zero: U)(op: (U, T) => U)(implicit uTag: ClassTag[U]): NestedRDD[U] = {
-    segmentedScan((0 until structure.nests).map(i => zero))(op)
+  def segmentedScan[U](zero: U)(scanOp: (U, T) => U,
+                                updateOp: (U, U) => U)(implicit uTag: ClassTag[U]): NestedRDD[U] = {
+    segmentedScan((0 until structure.nests).map(i => zero))(scanOp, updateOp)
   }
 
   /**
@@ -362,7 +371,8 @@ class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
    * @param zero Sequence of zero values to use for the scan.
    * @return New RDD where each segment has been operated on by a scan.
    */
-  def segmentedScan[U](zeros: Seq[U])(op: (U, T) => U)(implicit uTag: ClassTag[U]): NestedRDD[U] = {
+  def segmentedScan[U](zeros: Seq[U])(scanOp: (U, T) => U,
+                                      updateOp: (U, U) => U)(implicit uTag: ClassTag[U]): NestedRDD[U] = {
     assert(zeros.length == structure.nests,
       "Zeros must match to structure of RDD.")
 
@@ -377,7 +387,7 @@ class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
 
         val idx = sorted.map(kv => kv._1)
         val vals = sorted.map(kv => kv._2)
-          .scanLeft(zero)(op)
+          .scanLeft(zero)(scanOp)
           .dropRight(1)
 
         idx.zip(vals)
@@ -406,6 +416,12 @@ class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
   protected def repartition(newStrategy: PartitioningStrategy.Strategy)(implicit tTag: ClassTag[T]): NestedRDD[T] = newStrategy match {
     case PartitioningStrategy.Segmented => {
       new SegmentedRDD[T](rdd.partitionBy(new SegmentPartitioner(structure)),
+        structure,
+        strategy)
+    }
+    case PartitioningStrategy.Uniform => {
+      new UniformRDD[T](rdd.partitionBy(new UniformPartitioner(structure,
+        rdd.partitions.length)),
         structure,
         strategy)
     }

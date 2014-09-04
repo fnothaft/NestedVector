@@ -15,15 +15,15 @@
  */
 package net.fnothaft.snark.rdd
 
-import org.apache.spark.Partitioner
 import net.fnothaft.snark.{ ArrayStructure, NestedIndex }
+import org.apache.spark.Partitioner
 
 private[rdd] class SegmentPartitioner(structure: ArrayStructure) extends Partitioner {
 
   val nests = structure.nests
 
   def getPartition(key: Any): Int = key match {
-    case ni: NestedIndex => if (ni.nest <= nests) {
+    case ni: NestedIndex => if (ni.nest < nests && ni.idx <= structure.nestLengths(ni.nest)) {
       ni.nest
     } else {
       throw new IllegalArgumentException("Recieved out of range key: " + ni +

@@ -19,11 +19,6 @@ private[snark] case class ArrayStructure(nestLengths: Seq[Long]) {
 
   assert(nestLengths.length > 0, "Array must have at least one nest.")
 
-  def equals(them: ArrayStructure): Boolean = {
-    nestLengths.length == them.nestLengths.length &&
-      nestLengths.zip(them.nestLengths).forall(p => p._1 == p._2)
-  }
-
   def nests: Int = nestLengths.length
 
   def elements: Long = nestLengths.reduce(_ + _)

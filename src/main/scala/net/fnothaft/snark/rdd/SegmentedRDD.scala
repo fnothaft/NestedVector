@@ -46,7 +46,7 @@ private[rdd] class SegmentedRDD[T](override protected val rdd: RDD[(NestedIndex,
 
         (idx, op(v))
       })
-    }, true), structure)
+    }, true), structure, strategy)
   }
 
   /**
@@ -66,7 +66,7 @@ private[rdd] class SegmentedRDD[T](override protected val rdd: RDD[(NestedIndex,
 
         (idx, op(v, idx))
       })
-    }, true), structure)
+    }, true), structure, strategy)
   }
 
   /**
@@ -138,7 +138,7 @@ private[rdd] class SegmentedRDD[T](override protected val rdd: RDD[(NestedIndex,
     // unpersist cached rdd
     firstPass.unpersist()
 
-    new SegmentedRDD[U](finalScanRDD, structure)
+    new SegmentedRDD[U](finalScanRDD, structure, strategy)
   }
 
   /**
@@ -162,17 +162,18 @@ private[rdd] class SegmentedRDD[T](override protected val rdd: RDD[(NestedIndex,
    * @param zero Sequence of zero values to use for the scan.
    * @return New RDD where each segment has been operated on by a scan.
    */
-  override def segmentedScan[U](zeros: Seq[U])(op: (U, T) => U)(
-    implicit uTag: ClassTag[U]): NestedRDD[U] = {
+  override def segmentedScan[U](zeros: Seq[U])(scanOp: (U, T) => U,
+                                               updateOp: (U, U) => U)(
+                                                 implicit uTag: ClassTag[U]): NestedRDD[U] = {
     assert(zeros.length == structure.nests,
       "Zeros must match to structure of RDD.")
 
     new SegmentedRDD[U](rdd.mapPartitionsWithIndex((idx, iter) => {
-      val (res, _) = doScan(op, iter, zeros(idx))
+      val (res, _) = doScan(scanOp, iter, zeros(idx))
 
       // return iterator
       res.toIterator
-    }), structure)
+    }), structure, strategy)
   }
 
   /**
