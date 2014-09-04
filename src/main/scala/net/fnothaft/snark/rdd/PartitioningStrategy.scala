@@ -17,5 +17,5 @@ package net.fnothaft.snark.rdd
 
 object PartitioningStrategy extends Enumeration {
   type Strategy = Value
-  val None, Auto, Segmented = Value
+  val None, Auto, Segmented, Uniform = Value
 }
