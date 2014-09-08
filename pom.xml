@@ -10,7 +10,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>net.fnothaft.snark</groupId>
   <artifactId>snark-parent</artifactId>
-  <version>0.0.1</version>
+  <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>snark</name>
   <description>Scalable Nested Array Kit</description>
@@ -43,7 +43,7 @@
     <connection>scm:git:git@github.com:fnothaft/snark.git</connection>
     <developerConnection>scm:git:git@github.com:fnothaft/snark.git</developerConnection>
     <url>scm:git:git@github.com:fnothaft/snark.git</url>
-    <tag>snark-parent-0.0.1</tag>
+    <tag>HEAD</tag>
   </scm>
   
   <developers>
