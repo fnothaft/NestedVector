@@ -16,12 +16,17 @@
 package net.fnothaft.snark.rdd
 
 import org.apache.spark.SparkContext._
-import org.apache.spark.SparkContext
+import org.apache.spark.{ Logging, SparkContext }
 import org.apache.spark.rdd.RDD
 import net.fnothaft.snark.SnarkContext._
-import net.fnothaft.snark.{ ArrayStructure, NestedIndex }
+import net.fnothaft.snark.{
+  ArrayStructure,
+  DenseArrayStructure,
+  NestedIndex,
+  SparseArrayStructure
+}
 import scala.annotation.tailrec
-import scala.math.{ log, pow }
+import scala.math.{ log => mathLog, pow }
 import scala.reflect.ClassTag
 
 object NestedRDD {
@@ -34,7 +39,7 @@ object NestedRDD {
    * @return Returns an RDD containing indices from 0 to n.
    */
   private[rdd] def index(sc: SparkContext, n: Int): RDD[NestedIndex] = {
-    var step = pow(2, (log(n.toDouble) / log(2.0)).toInt).toInt
+    var step = pow(2, (mathLog(n.toDouble) / mathLog(2.0)).toInt).toInt
     var rdd: RDD[NestedIndex] = sc.parallelize(Seq(NestedIndex(0, 0)))
 
     @tailrec def fillIn(step: Int, rdd: RDD[NestedIndex]): RDD[NestedIndex] = {
@@ -55,9 +60,9 @@ object NestedRDD {
    * @param structure Structure of this RDD.
    * @return Returns a nested RDD.
    */
-  private[rdd] def apply[T](rdd: RDD[(NestedIndex, T)],
-                            structure: ArrayStructure,
-                            strategy: PartitioningStrategy.Strategy = PartitioningStrategy.Auto)(implicit tTag: ClassTag[T]): NestedRDD[T] = strategy match {
+  private[snark] def apply[T](rdd: RDD[(NestedIndex, T)],
+                              structure: ArrayStructure,
+                              strategy: PartitioningStrategy.Strategy = PartitioningStrategy.Auto)(implicit tTag: ClassTag[T]): NestedRDD[T] = strategy match {
     case PartitioningStrategy.Auto => {
       ???
     }
@@ -68,9 +73,9 @@ object NestedRDD {
 
 }
 
-class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
-                                 protected val structure: ArrayStructure,
-                                 protected val strategy: PartitioningStrategy.Strategy = PartitioningStrategy.None) extends Serializable {
+class NestedRDD[T] private[snark] (private[snark] val rdd: RDD[(NestedIndex, T)],
+                                   private[snark] val structure: ArrayStructure,
+                                   val strategy: PartitioningStrategy.Strategy = PartitioningStrategy.None) extends Serializable with Logging {
 
   /**
    * Maps a function to every element of this RDD.
@@ -207,6 +212,58 @@ class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
       }), structure, strategy)
   }
 
+  protected def calculatePartitions[U](pRdd: RDD[(NestedIndex, U)]): ArrayStructure = {
+    val numSparsePartitions = pRdd.context.accumulator(0)
+    val structure = pRdd.map(kv => (kv._1.nest, kv._1.idx))
+      .groupByKey()
+      .map(kv => {
+        val (nest, indices) = kv
+
+        // collect length and max val
+        val l = indices.size
+        val m = indices.reduce(_ max _)
+
+        // if we have a higher max value than length, we are sparse
+        if (l < m) {
+          numSparsePartitions += 1
+        }
+
+        (nest, l)
+      }).collect()
+
+    if (numSparsePartitions.value == 0) {
+      new DenseArrayStructure(structure.toSeq
+        .sortBy(kv => kv._1)
+        .map(kv => kv._2.toLong))
+    } else {
+      new SparseArrayStructure(structure.map(kv => (kv._1, kv._2.toLong)).toMap)
+    }
+  }
+
+  /**
+   * Performs an index-based combining operation.
+   *
+   * @param op Binary combining operation.
+   * @param index Nested index RDD to use. Must have same structure as this nested RDD.
+   */
+  def multiScatter(op: ((NestedIndex, T)) => Iterable[(NestedIndex, T)])(
+    combineOp: (T, T) => T)(
+      implicit tTag: ClassTag[T]): NestedRDD[T] = {
+
+    // flat map to remap values
+    val multiMappedRdd = rdd.flatMap(op)
+      .groupByKey()
+      .map(kv => (kv._1, kv._2.reduce(combineOp)))
+
+    // cache multimapped rdd
+    multiMappedRdd.cache()
+
+    // calculate index
+    val newIdx = calculatePartitions(multiMappedRdd)
+
+    NestedRDD[T](multiMappedRdd, newIdx, strategy)
+  }
+
   @tailrec protected final def doScan[U](scanOp: (U, T) => U,
                                          iter: Iterator[(NestedIndex, T)],
                                          runningValue: U,
@@ -313,9 +370,10 @@ class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
    * @param op Function to apply.
    * @param r Other nested RDD to perform P operation on. Must have the same structure as this RDD.
    */
-  def p[U, V](op: (T, U) => V)(r: NestedRDD[U])(implicit vTag: ClassTag[V]): NestedRDD[V] = {
+  def p[U, V](op: (T, U) => V)(r: NestedRDD[U])(implicit uTag: ClassTag[U], vTag: ClassTag[V]): NestedRDD[V] = {
     assert(structure.equals(r.structure),
-      "Cannot do a p-operation on two nested arrays with different sizes.")
+      "Cannot do a p-operation on two nested arrays with different sizes: " +
+        structure + ", " + r.structure)
 
     NestedRDD[V](rdd.zip(r.rdd)
       .map(kvp => {
@@ -326,6 +384,20 @@ class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
       }), structure, strategy)
   }
 
+  def p(op: (T, T) => T, preserveUnpaired: Boolean)(r: NestedRDD[T])(implicit tTag: ClassTag[T]): NestedRDD[T] = {
+    println("nested p")
+    NestedRDD[T]((rdd ++ r.rdd).groupByKey().flatMap(kv => {
+      val (idx, seq) = kv
+
+      if (seq.size == 2 || preserveUnpaired) {
+        println("reducing " + idx + ", " + seq + " to " + seq.reduce(op))
+        Some((idx, seq.reduce(op)))
+      } else {
+        None
+      }
+    }), structure, strategy)
+  }
+
   /**
    * Applies a reduce within each nested segment. This operates on all nested segments.
    *
@@ -333,14 +405,23 @@ class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
    * @return Returns a map, which maps each nested segment ID to the reduction value.
    */
   def segmentedReduce(op: (T, T) => T)(implicit tTag: ClassTag[T]): Map[Int, T] = {
+    segmentedReduceToRdd(op).collect.toMap
+  }
+
+  /**
+   * Applies a reduce within each nested segment. This operates on all nested segments.
+   *
+   * @param op Reduction function to apply.
+   * @return Returns a map, which maps each nested segment ID to the reduction value.
+   */
+  def segmentedReduceToRdd(op: (T, T) => T)(implicit tTag: ClassTag[T]): RDD[(Int, T)] = {
     rdd.map(kv => (kv._1.nest, kv._2))
       .groupByKey()
       .map(ks => {
         val (k, s): (Int, Iterable[T]) = ks
 
         (k, s.reduce(op))
-      }).collect
-      .toMap
+      })
   }
 
   def segmentedScan(zero: T)(op: (T, T) => T)(implicit tTag: ClassTag[T]): NestedRDD[T] = {
@@ -411,19 +492,57 @@ class NestedRDD[T] private[rdd] (protected val rdd: RDD[(NestedIndex, T)],
     rdd.map(kv => kv._2)
   }
 
+  private def sortPartitions(repartitionedRdd: RDD[(NestedIndex, T)]): RDD[(NestedIndex, T)] = {
+    repartitionedRdd.mapPartitions(iter => {
+      iter.toList.sortBy(kv => kv._1).toIterator
+    })
+  }
+
+  def matchPartitioning[U](otherRdd: NestedRDD[U])(implicit tTag: ClassTag[T]): NestedRDD[T] = otherRdd match {
+    case srdd: SegmentedRDD[U] => {
+      new SegmentedRDD[T](sortPartitions(rdd.partitionBy(new SegmentPartitioner(structure))),
+        structure,
+        strategy)
+    }
+    case urdd: UniformRDD[U] => {
+      new UniformRDD[T](sortPartitions(rdd.partitionBy(new UniformPartitioner(urdd.structure.asInstanceOf[DenseArrayStructure],
+        urdd.rdd.partitions.length))),
+        structure,
+        strategy)
+    }
+    case _ => {
+      // no-op
+      this
+    }
+  }
+
+  def cache() = rdd.cache()
+
+  def unpersist() = rdd.unpersist()
+
   protected def repartition()(implicit tTag: ClassTag[T]): NestedRDD[T] = repartition(strategy)
 
   protected def repartition(newStrategy: PartitioningStrategy.Strategy)(implicit tTag: ClassTag[T]): NestedRDD[T] = newStrategy match {
     case PartitioningStrategy.Segmented => {
-      new SegmentedRDD[T](rdd.partitionBy(new SegmentPartitioner(structure)),
+      new SegmentedRDD[T](sortPartitions(rdd.partitionBy(new SegmentPartitioner(structure))),
         structure,
         strategy)
     }
     case PartitioningStrategy.Uniform => {
-      new UniformRDD[T](rdd.partitionBy(new UniformPartitioner(structure,
-        rdd.partitions.length)),
-        structure,
-        strategy)
+      structure match {
+        case dense: DenseArrayStructure => {
+          new UniformRDD[T](sortPartitions(rdd.partitionBy(new UniformPartitioner(dense,
+            rdd.partitions.length))),
+            structure,
+            strategy)
+        }
+        case _ => {
+          log.warn("Cannot uniformly partition sparse nested RDD. Falling back to segmented structure...")
+          new SegmentedRDD[T](sortPartitions(rdd.partitionBy(new SegmentPartitioner(structure))),
+            structure,
+            strategy)
+        }
+      }
     }
     case _ => {
       // no-op

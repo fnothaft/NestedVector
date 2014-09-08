@@ -15,12 +15,19 @@
  */
 package net.fnothaft.snark
 
-private[snark] trait ArrayStructure extends Serializable {
+import org.scalatest.FunSuite
 
-  def nests: Int
+class DenseArrayStructureSuite extends FunSuite {
 
-  def elements: Long
+  test("cannot create a structure without a level of hierarchy") {
+    intercept[AssertionError] {
+      new DenseArrayStructure(Seq[Long]())
+    }
+  }
 
-  def getIndex(idx: NestedIndex): Option[Int]
+  test("check to make sure that we return the number of elements correctly") {
+    val a1 = new DenseArrayStructure(Seq(4L, 4L, 5L))
+    assert(a1.elements === 13L)
+  }
 
 }

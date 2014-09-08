@@ -9,48 +9,24 @@
     <relativePath>../pom.xml</relativePath>
   </parent>
 
-  <artifactId>snark-core</artifactId>
+  <artifactId>snark-linalg</artifactId>
   <packaging>jar</packaging>
-  <name>Scalable Nested Array Kit: Core nested data parallel APIs</name>
+  <name>Scalable Nested Array Kit: Linear algebra libraries</name>
 
   <dependencies>
     <dependency>
-      <groupId>commons-io</groupId>
-      <artifactId>commons-io</artifactId>
+      <groupId>net.fnothaft.snark</groupId>
+      <artifactId>snark-core</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-log4j12</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.scala-lang</groupId>
-      <artifactId>scala-library</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.hadoop</groupId>
-      <artifactId>hadoop-client</artifactId>
-      <exclusions>
-        <exclusion>
-          <groupId>asm</groupId>
-          <artifactId>asm</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.jboss.netty</groupId>
-          <artifactId>netty</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.codehaus.jackson</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.sonatype.sisu.inject</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
+      <groupId>net.fnothaft.snark</groupId>
+      <artifactId>snark-core</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
-      <artifactId>spark-core_${scala.artifact.suffix}</artifactId>
+      <artifactId>spark-mllib_${scala.artifact.suffix}</artifactId>
     </dependency>
     <dependency>
       <groupId>org.scalatest</groupId>

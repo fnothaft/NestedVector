@@ -13,14 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.fnothaft.snark
+package net.fnothaft.snark.linalg
 
-private[snark] trait ArrayStructure extends Serializable {
+trait MatrixStructure {
 
-  def nests: Int
+  // matrix height and width
+  val h: Int
+  val w: Int
 
-  def elements: Long
+  def transpose(): MatrixStructure
 
-  def getIndex(idx: NestedIndex): Option[Int]
-
+  def equals(mat: MatrixStructure): Boolean
 }

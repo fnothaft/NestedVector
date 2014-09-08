@@ -23,11 +23,13 @@ private[rdd] class SegmentPartitioner(structure: ArrayStructure) extends Partiti
   val nests = structure.nests
 
   def getPartition(key: Any): Int = key match {
-    case ni: NestedIndex => if (ni.nest < nests && ni.idx <= structure.nestLengths(ni.nest)) {
-      ni.nest
-    } else {
-      throw new IllegalArgumentException("Recieved out of range key: " + ni +
-        ". Only have " + nests + " nests.")
+    case ni: NestedIndex => {
+      structure.getIndex(ni).fold(if (ni.nest < structure.nests) {
+        ni.nest
+      } else {
+        throw new IllegalArgumentException("Recieved out of range key: " + ni +
+          ". Only have " + nests + " nests.")
+      })(i => ni.nest)
     }
     case _ => throw new IllegalArgumentException("Received key with non nested-index type: " + key)
   }

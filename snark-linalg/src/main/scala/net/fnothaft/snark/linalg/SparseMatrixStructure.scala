@@ -13,21 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.fnothaft.snark
+package net.fnothaft.snark.linalg
 
-import org.scalatest.FunSuite
+import net.fnothaft.snark.SparseArrayStructure
 
-class ArrayStructureSuite extends FunSuite {
-
-  test("cannot create a structure without a level of hierarchy") {
-    intercept[AssertionError] {
-      ArrayStructure(Seq[Long]())
-    }
+case class SparseMatrixStructure(override val h: Int,
+                                 override val w: Int) extends MatrixStructure {
+  def transpose(): MatrixStructure = {
+    SparseMatrixStructure(w, h)
   }
 
-  test("check to make sure that we return the number of elements correctly") {
-    val a1 = ArrayStructure(Seq(4L, 4L, 5L))
-    assert(a1.elements === 13L)
+  def equals(mat: MatrixStructure): Boolean = mat match {
+    case sm: SparseMatrixStructure => h == sm.h && w == sm.w
+    case _                         => false
   }
 
+  def toStructure(): SparseArrayStructure = {
+    new SparseArrayStructure((0 to h).map(i => (i, w.toLong)).toMap)
+  }
 }

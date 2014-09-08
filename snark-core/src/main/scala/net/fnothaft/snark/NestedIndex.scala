@@ -26,7 +26,13 @@ case class NestedIndex(nest: Int, idx: Int) extends Ordered[NestedIndex] {
     }
   }
 
-  def lteq(that: NestedIndex): Boolean = nest < that.nest || (nest == that.nest && idx <= that.idx)
+  def lteq(that: NestedIndex): Boolean = !gt(that)
+
+  def lt(that: NestedIndex): Boolean = nest < that.nest || (nest == that.nest && idx < that.idx)
+
+  def eq(that: NestedIndex): Boolean = nest == that.nest && idx == that.idx
+
+  def gt(that: NestedIndex): Boolean = nest > that.nest || (nest == that.nest && idx > that.idx)
 
   override def toString(): String = "NestedIndex(" + nest + ", " + idx + ")"
 }
