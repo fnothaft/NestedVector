@@ -1,1 +1,10 @@
 language: java
+
+env:
+  global:
+    - SONATYPE_USERNAME=fnothaft
+    - secure: "FpD1TRrtKGWFIj/KIR6JirPt0u/H2MZordfkIXcmhJ0758fz0wFtq+ikzIDSNRaO2k/ZncClAfIxRmbMB2z+dxdnrekVCnrB3h+0za24LP2nZhkmC3aV0cb5Pa+DF1F9QahJX+26w0qcpJKVrFfxZAZhFYiafmax3Mb7dQl0wTQ="
+
+after_success:
+  - python addServer.py
+  - mvn clean deploy --settings ~/.m2/mySettings.xml
