@@ -20,9 +20,7 @@
     <java.version>1.7</java.version>
     <scala.version>2.10.3</scala.version>
     <scala.artifact.suffix>2.10</scala.artifact.suffix>
-    <avro.version>1.7.4</avro.version>
-    <spark.version>1.0.0</spark.version>
-    <parquet.version>1.3.2</parquet.version>
+    <spark.version>1.2.0</spark.version>
     <!-- Edit the following line to configure the Hadoop (HDFS) version. -->
     <hadoop.version>2.2.0</hadoop.version>
   </properties>
@@ -94,11 +92,6 @@
           <groupId>net.alchim31.maven</groupId>
           <artifactId>scala-maven-plugin</artifactId>
           <version>3.1.5</version>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.avro</groupId>
-          <artifactId>avro-maven-plugin</artifactId>
-          <version>${avro.version}</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -316,7 +309,12 @@
         <groupId>org.apache.hadoop</groupId>
         <artifactId>hadoop-client</artifactId>
         <version>${hadoop.version}</version>
+        <scope>provided</scope>
         <exclusions>
+          <exclusion>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+          </exclusion>
           <exclusion>
             <groupId>asm</groupId>
             <artifactId>asm</artifactId>
@@ -339,6 +337,7 @@
         <groupId>org.apache.spark</groupId>
         <artifactId>spark-core_${scala.artifact.suffix}</artifactId>
         <version>${spark.version}</version>
+        <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>org.scalatest</groupId>
