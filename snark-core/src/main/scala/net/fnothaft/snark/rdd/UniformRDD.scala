@@ -25,9 +25,9 @@ import scala.collection.mutable.HashMap
 import scala.math.{ log, pow }
 import scala.reflect.ClassTag
 
-private[rdd] class UniformRDD[T](override protected val rdd: RDD[(NestedIndex, T)],
-                                 override protected val structure: ArrayStructure,
-                                 override protected val strategy: PartitioningStrategy.Strategy = PartitioningStrategy.Uniform) extends NestedRDD[T](rdd,
+private[snark] class UniformRDD[T](override private[snark] val rdd: RDD[(NestedIndex, T)],
+                                   override private[snark] val structure: ArrayStructure,
+                                   override val strategy: PartitioningStrategy.Strategy = PartitioningStrategy.Uniform) extends NestedRDD[T](rdd,
   structure,
   strategy) {
 
@@ -139,13 +139,7 @@ private[rdd] class UniformRDD[T](override protected val rdd: RDD[(NestedIndex, T
     new UniformRDD[U](finalScanRDD, structure, strategy)
   }
 
-  /**
-   * Applies a reduce within each nested segment. This operates on all nested segments.
-   *
-   * @param op Reduction function to apply.
-   * @return Returns a map, which maps each nested segment ID to the reduction value.
-   */
-  override def segmentedReduce(op: (T, T) => T)(implicit tTag: ClassTag[T]): Map[Int, T] = {
+  private def segmentedReduceHelper(op: (T, T) => T)(implicit tTag: ClassTag[T]): RDD[(Int, T)] = {
     @tailrec def reducePartition(iter: Iterator[(NestedIndex, T)],
                                  currentNest: Int,
                                  currentValue: T,
@@ -170,8 +164,30 @@ private[rdd] class UniformRDD[T](override protected val rdd: RDD[(NestedIndex, T
       } else {
         Iterator[(Int, T)]()
       }
-    }).reduceByKeyLocally(op)
+    })
+  }
+
+  /**
+   * Applies a reduce within each nested segment. This operates on all nested segments.
+   *
+   * @param op Reduction function to apply.
+   * @return Returns a map, which maps each nested segment ID to the reduction value.
+   */
+  override def segmentedReduce(op: (T, T) => T)(implicit tTag: ClassTag[T]): Map[Int, T] = {
+    segmentedReduceHelper(op)
+      .reduceByKeyLocally(op)
       .toMap
+  }
+
+  /**
+   * Applies a reduce within each nested segment. This operates on all nested segments.
+   *
+   * @param op Reduction function to apply.
+   * @return Returns a map, which maps each nested segment ID to the reduction value.
+   */
+  override def segmentedReduceToRdd(op: (T, T) => T)(implicit tTag: ClassTag[T]): RDD[(Int, T)] = {
+    segmentedReduceHelper(op)
+      .reduceByKey(op)
   }
 
   protected final def doScanInNest[U](scanOp: (U, T) => U,

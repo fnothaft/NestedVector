@@ -24,9 +24,9 @@ import scala.annotation.tailrec
 import scala.collection.mutable.HashMap
 import scala.reflect.ClassTag
 
-private[rdd] class SegmentedRDD[T](override protected val rdd: RDD[(NestedIndex, T)],
-                                   override protected val structure: ArrayStructure,
-                                   override protected val strategy: PartitioningStrategy.Strategy = PartitioningStrategy.Segmented) extends NestedRDD[T](rdd,
+private[snark] class SegmentedRDD[T](override private[snark] val rdd: RDD[(NestedIndex, T)],
+                                     override private[snark] val structure: ArrayStructure,
+                                     override val strategy: PartitioningStrategy.Strategy = PartitioningStrategy.Segmented) extends NestedRDD[T](rdd,
   structure,
   strategy) {
 
@@ -147,11 +147,14 @@ private[rdd] class SegmentedRDD[T](override protected val rdd: RDD[(NestedIndex,
    * @param op Reduction function to apply.
    * @return Returns a map, which maps each nested segment ID to the reduction value.
    */
-  override def segmentedReduce(op: (T, T) => T)(implicit tTag: ClassTag[T]): Map[Int, T] = {
+  override def segmentedReduceToRdd(op: (T, T) => T)(implicit tTag: ClassTag[T]): RDD[(Int, T)] = {
     rdd.mapPartitionsWithIndex((idx, iter) => {
-      Iterator((idx, iter.map(kv => kv._2).reduce(op)))
-    }).collect
-      .toMap
+      if (iter.hasNext) {
+        Iterator((idx, iter.map(kv => kv._2).reduce(op)))
+      } else {
+        Iterator[(Int, T)]()
+      }
+    })
   }
 
   /**
@@ -174,6 +177,162 @@ private[rdd] class SegmentedRDD[T](override protected val rdd: RDD[(NestedIndex,
       // return iterator
       res.toIterator
     }), structure, strategy)
+  }
+
+  /**
+   * Executes an elemental operation across two nested RDDs. The two nested RDDs must have the
+   * same structure. In this operation, both elements at an index have a function applied to them.
+   *
+   * @param op Function to apply.
+   * @param r Other nested RDD to perform P operation on. Must have the same structure as this RDD.
+   */
+  override def p[U, V](op: (T, U) => V)(r: NestedRDD[U])(implicit uTag: ClassTag[U], vTag: ClassTag[V]): NestedRDD[V] = {
+    assert(structure.equals(r.structure),
+      "Cannot do a p-operation on two nested arrays with different sizes: " +
+        structure + ", " + r.structure)
+
+    val srdd: SegmentedRDD[U] = r match {
+      case s: SegmentedRDD[U] => s
+      case _                  => r.matchPartitioning(this).asInstanceOf[SegmentedRDD[U]]
+    }
+
+    new SegmentedRDD[V](rdd.zipPartitions(srdd.rdd)(twiddle(_, _, op)), structure, strategy)
+  }
+
+  private def twiddle[U, V](iterT: Iterator[(NestedIndex, T)],
+                            iterU: Iterator[(NestedIndex, U)],
+                            op: (T, U) => V): Iterator[(NestedIndex, V)] = {
+    @tailrec def twiddleHelper(iterT: Iterator[(NestedIndex, T)],
+                               currT: (NestedIndex, T),
+                               iterU: Iterator[(NestedIndex, U)],
+                               currU: (NestedIndex, U),
+                               l: List[(NestedIndex, V)]): Iterator[(NestedIndex, V)] = {
+      if (!iterT.hasNext || !iterU.hasNext) {
+        val finalL = if (currT._1.eq(currU._1)) {
+          (currT._1, op(currT._2, currU._2)) :: l
+        } else {
+          l
+        }
+        finalL.reverse.toIterator
+      } else {
+        val (nextT, nextU, nextL) = if (currT._1.eq(currU._1)) {
+          (iterT.next, iterU.next, (currT._1, op(currT._2, currU._2)) :: l)
+        } else if (currT._1.lt(currU._1)) {
+          (iterT.next, currU, l)
+        } else {
+          (currT, iterU.next, l)
+        }
+
+        // recurse
+        twiddleHelper(iterT, nextT, iterU, nextU, nextL)
+      }
+    }
+
+    if (iterT.hasNext && iterU.hasNext) {
+      twiddleHelper(iterT, iterT.next, iterU, iterU.next, List())
+    } else {
+      Iterator()
+    }
+  }
+
+  /**
+   * Executes an elemental operation across two nested RDDs. The two nested RDDs must have the
+   * same structure. In this operation, both elements at an index have a function applied to them.
+   *
+   * @param op Function to apply.
+   * @param r Other nested RDD to perform P operation on. Must have the same structure as this RDD.
+   */
+  override def p(op: (T, T) => T, preserveUnpaired: Boolean)(r: NestedRDD[T])(implicit tTag: ClassTag[T]): NestedRDD[T] = {
+
+    assert(structure.equals(r.structure),
+      "Cannot do a p-operation on two nested arrays with different sizes: " +
+        structure + ", " + r.structure)
+
+    val srdd: SegmentedRDD[T] = r match {
+      case s: SegmentedRDD[T] => s
+      case _                  => r.matchPartitioning(this).asInstanceOf[SegmentedRDD[T]]
+    }
+
+    new SegmentedRDD[T](rdd.zipPartitions(srdd.rdd)(twiddle(_, _, op, preserveUnpaired)), structure, strategy)
+  }
+
+  private def twiddle(iterT1: Iterator[(NestedIndex, T)],
+                      iterT2: Iterator[(NestedIndex, T)],
+                      op: (T, T) => T,
+                      preserveUnpaired: Boolean): Iterator[(NestedIndex, T)] = {
+    @tailrec def twiddleHelper(iterT1: Iterator[(NestedIndex, T)],
+                               currT1: (NestedIndex, T),
+                               iterT2: Iterator[(NestedIndex, T)],
+                               currT2: (NestedIndex, T),
+                               l: List[(NestedIndex, T)]): Iterator[(NestedIndex, T)] = {
+      if (!iterT1.hasNext && !iterT2.hasNext) {
+        val finalL = if (currT1._1.eq(currT2._1)) {
+          (currT1._1, op(currT1._2, currT2._2)) :: l
+        } else if (preserveUnpaired) {
+          if (currT1._1.lt(currT2._1)) {
+            (currT2 :: (currT1 :: l))
+          } else {
+            (currT1 :: (currT2 :: l))
+          }
+        } else {
+          l
+        }
+        finalL.reverse.toIterator
+      } else {
+        val (nextT1, nextT2, nextL) = if (currT1._1.eq(currT2._1)) {
+          val ni1 = if (iterT1.hasNext) {
+            iterT1.next
+          } else {
+            currT1
+          }
+          val ni2 = if (iterT2.hasNext) {
+            iterT2.next
+          } else {
+            currT2
+          }
+          (ni1, ni2, (currT1._1, op(currT1._2, currT2._2)) :: l)
+        } else if (currT1._1.lt(currT2._1)) {
+          val ni = if (iterT1.hasNext) {
+            iterT1.next
+          } else {
+            currT1
+          }
+          if (preserveUnpaired) {
+            (ni, currT2, currT1 :: l)
+          } else {
+            (ni, currT2, l)
+          }
+        } else {
+          val ni = if (iterT2.hasNext) {
+            iterT2.next
+          } else {
+            currT2
+          }
+          if (preserveUnpaired) {
+            (currT1, ni, currT2 :: l)
+          } else {
+            (currT1, ni, l)
+          }
+        }
+
+        // recurse
+        twiddleHelper(iterT1, nextT1, iterT2, nextT2, nextL)
+      }
+    }
+
+    val l1 = iterT1.toList
+    val l2 = iterT2.toList
+
+    val _iterT1 = l1.toIterator
+    val _iterT2 = l2.toIterator
+
+    if (_iterT1.hasNext && _iterT2.hasNext) {
+      twiddleHelper(_iterT1, _iterT1.next, _iterT2, _iterT2.next, List())
+    } else if (preserveUnpaired) {
+      _iterT1 ++ _iterT2
+    } else {
+      Iterator()
+    }
   }
 
   /**

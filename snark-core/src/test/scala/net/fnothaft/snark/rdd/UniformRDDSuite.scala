@@ -16,7 +16,7 @@
 package net.fnothaft.snark.rdd
 
 import org.apache.spark.rdd.RDD
-import net.fnothaft.snark.{ NestedIndex, ArrayStructure }
+import net.fnothaft.snark.{ DenseArrayStructure, NestedIndex }
 import net.fnothaft.snark.util.SparkFunSuite
 
 class UniformRDDSuite extends SparkFunSuite {
@@ -24,7 +24,7 @@ class UniformRDDSuite extends SparkFunSuite {
   sparkTest("can build a simple nested array") {
     val index = NestedRDD.index(sc, 10).coalesce(1)
     val rdd = sc.parallelize(Seq(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), 1)
-    val structure = ArrayStructure(Seq(10L))
+    val structure = new DenseArrayStructure(Seq(10L))
     val zipRdd = index.zip(rdd)
 
     val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.Uniform)
@@ -36,7 +36,7 @@ class UniformRDDSuite extends SparkFunSuite {
   sparkTest("perform simple scan: factorial") {
     val index = NestedRDD.index(sc, 5).coalesce(1)
     val rdd = sc.parallelize(Seq(1, 2, 3, 4, 5), 1)
-    val structure = ArrayStructure(Seq(5L))
+    val structure = new DenseArrayStructure(Seq(5L))
     val zipRdd = index.zip(rdd)
 
     val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.Uniform)
@@ -60,7 +60,7 @@ class UniformRDDSuite extends SparkFunSuite {
   sparkTest("perform simple scan: sum") {
     val index = NestedRDD.index(sc, 5).coalesce(1)
     val rdd = sc.parallelize(Seq(1, 1, 1, 1, 1), 1)
-    val structure = ArrayStructure(Seq(5L))
+    val structure = new DenseArrayStructure(Seq(5L))
     val zipRdd = index.zip(rdd)
 
     val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.Uniform)
@@ -78,7 +78,7 @@ class UniformRDDSuite extends SparkFunSuite {
   sparkTest("perform simple reduce") {
     val index = NestedRDD.index(sc, 5).coalesce(1)
     val rdd = sc.parallelize(Seq(1, 1, 1, 1, 1), 1)
-    val structure = ArrayStructure(Seq(5L))
+    val structure = new DenseArrayStructure(Seq(5L))
     val zipRdd = index.zip(rdd)
 
     val nRdd = NestedRDD(zipRdd, structure, PartitioningStrategy.Uniform)
@@ -97,7 +97,7 @@ class UniformRDDSuite extends SparkFunSuite {
     val index = NestedRDD.index(sc, 5).coalesce(1)
     val rdd1 = sc.parallelize(Seq(1, 1, 1, 1, 1), 1)
     val rdd2 = sc.parallelize(Seq(-1, 0, 1, 2, 3), 1)
-    val structure = ArrayStructure(Seq(5L))
+    val structure = new DenseArrayStructure(Seq(5L))
     val zipRdd1 = index.zip(rdd1)
     val zipRdd2 = index.zip(rdd2)
 
@@ -116,7 +116,7 @@ class UniformRDDSuite extends SparkFunSuite {
   sparkTest("perform a simple scan") {
     val index = NestedRDD.index(sc, 10).coalesce(1)
     val rdd = sc.parallelize(Seq(1, 1, 1, 1, 1, 1, 1, 1, 1, 1), 1)
-    val structure = ArrayStructure(Seq(10L))
+    val structure = new DenseArrayStructure(Seq(10L))
 
     val nRdd = NestedRDD(index.zip(rdd), structure, PartitioningStrategy.Uniform)
 
@@ -131,7 +131,7 @@ class UniformRDDSuite extends SparkFunSuite {
   sparkTest("perform a more complex scan") {
     val index = NestedRDD.index(sc, 1000).coalesce(5, true)
     val rdd = sc.parallelize((0 until 1000).toList.map(i => 1)).coalesce(5, true)
-    val structure = ArrayStructure(Seq(1000L))
+    val structure = new DenseArrayStructure(Seq(1000L))
 
     val nRdd = NestedRDD(index.zip(rdd), structure, PartitioningStrategy.Uniform)
 

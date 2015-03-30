@@ -13,14 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.fnothaft.snark
+package net.fnothaft.snark.linalg
 
-private[snark] trait ArrayStructure extends Serializable {
+import org.apache.spark.mllib.linalg.{ Vector => SparkVector }
 
-  def nests: Int
+abstract class Matrix(private[linalg] val structure: MatrixStructure) extends Serializable {
 
-  def elements: Long
+  protected def canMultiply(mat: Matrix): Boolean = structure.h == mat.structure.w
 
-  def getIndex(idx: NestedIndex): Option[Int]
+  def matrixAdd(mat: Matrix): Matrix
 
+  def scalarMultiply(scalar: Double): Matrix
+
+  def matrixMultiply(mat: Matrix): Matrix
+
+  def vectorMultiply(vec: SparkVector): SparkVector
 }

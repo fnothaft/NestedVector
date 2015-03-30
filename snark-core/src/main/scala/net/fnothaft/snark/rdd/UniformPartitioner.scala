@@ -15,11 +15,11 @@
  */
 package net.fnothaft.snark.rdd
 
-import net.fnothaft.snark.{ ArrayStructure, NestedIndex }
+import net.fnothaft.snark.{ DenseArrayStructure, NestedIndex }
 import org.apache.spark.Partitioner
 import scala.annotation.tailrec
 
-private[rdd] class UniformPartitioner(structure: ArrayStructure,
+private[rdd] class UniformPartitioner(structure: DenseArrayStructure,
                                       partitions: Int) extends Partitioner {
 
   val nests = structure.nests
